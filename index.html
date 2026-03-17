@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MBTA Pulse</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a0f; font-family:'Courier New',monospace; color:#e0e0e0; overflow:hidden; height:100vh; }
+#map { width:100%; height:100vh; }
+.leaflet-tile { filter: brightness(0.25) saturate(0.3) hue-rotate(200deg); }
+.leaflet-container { background:#0a0a0f; }
+
+#header {
+  position:absolute; top:0; left:0; right:0; z-index:1000;
+  background:linear-gradient(180deg,rgba(10,10,15,0.95) 0%,transparent 100%);
+  padding:14px 20px 40px; pointer-events:none;
+}
+#header h1 { font-size:1.1rem; letter-spacing:.25em; color:#fff; text-transform:uppercase; }
+#header p  { font-size:.65rem; color:#666; letter-spacing:.1em; margin-top:3px; }
+
+#stats {
+  position:absolute; top:62px; right:20px; z-index:1000;
+  background:rgba(10,10,15,.9); border:1px solid #2a2a2a;
+  border-radius:8px; padding:12px 16px; font-size:.62rem;
+  letter-spacing:.08em; backdrop-filter:blur(6px); min-width:160px;
+}
+#stats h3 { font-size:.65rem; color:#666; margin-bottom:8px; letter-spacing:.2em; }
+.stat-row { display:flex; justify-content:space-between; margin:5px 0; gap:16px; }
+.sv { font-weight:bold; }
+.sv.r { color:#ff4757; } .sv.y { color:#ffd93d; } .sv.g { color:#39ff7a; } .sv.w { color:#fff; }
+
+#controls {
+  position:absolute; top:62px; left:20px; z-index:1000;
+  display:flex; flex-direction:column; gap:8px;
+}
+.ctrl-btn {
+  background:rgba(10,10,15,.9); border:1px solid #2a2a2a;
+  border-radius:8px; padding:8px 14px; font-size:.6rem;
+  letter-spacing:.1em; cursor:pointer; color:#888;
+  font-family:inherit; backdrop-filter:blur(6px);
+  transition:border-color .2s,color .2s; pointer-events:all;
+}
+.ctrl-btn:hover { border-color:#39ff7a; color:#39ff7a; }
+.ctrl-btn.loading { border-color:#ffd93d; color:#ffd93d; }
+#data-src { font-size:.55rem; color:#444; margin-top:2px; }
+
+#legend {
+  position:absolute; bottom:20px; left:20px; z-index:1000;
+  background:rgba(10,10,15,.9); border:1px solid #2a2a2a;
+  border-radius:8px; padding:14px 18px; font-size:.62rem;
+  letter-spacing:.08em; backdrop-filter:blur(6px);
+}
+#legend h3 { font-size:.65rem; color:#666; margin-bottom:10px; letter-spacing:.2em; }
+.leg-row { display:flex; align-items:center; gap:10px; margin:5px 0; }
+.dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+.dot.g { background:#39ff7a; box-shadow:0 0 6px #39ff7a88; }
+.dot.y { background:#ffd93d; box-shadow:0 0 6px #ffd93d88; }
+.dot.r { background:#ff4757; box-shadow:0 0 6px #ff475788; }
+hr.div { border:none; border-top:1px solid #222; margin:10px 0; }
+.sz-row { display:flex; align-items:center; gap:8px; margin:5px 0; }
+.s1{width:8px;height:8px;border-radius:50%;background:#555;}
+.s2{width:14px;height:14px;border-radius:50%;background:#555;}
+.s3{width:20px;height:20px;border-radius:50%;background:#555;}
+#line-filter { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+.lb {
+  padding:3px 9px; border-radius:4px; font-size:.58rem; cursor:pointer;
+  border:1px solid transparent; font-family:inherit; letter-spacing:.05em;
+  transition:opacity .2s;
+}
+.lb.on { opacity:1; } .lb.off { opacity:.25; }
+.rl { background:#da291c22; border-color:#da291c; color:#ff7070; }
+.ol { background:#ed8b0022; border-color:#ed8b00; color:#ffb347; }
+.gl { background:#00843d22; border-color:#00843d; color:#4dff91; }
+.bl { background:#003da522; border-color:#003da5; color:#6699ff; }
+.sl { background:#7c878e22; border-color:#7c878e; color:#b0b8c0; }
+
+#ts { position:absolute; bottom:20px; right:20px; z-index:1000; font-size:.56rem; color:#333; letter-spacing:.06em; }
+
+/* popup */
+.leaflet-popup-content-wrapper {
+  background:rgba(8,8,12,.96)!important; border:1px solid #2a2a2a!important;
+  border-radius:8px!important; box-shadow:0 4px 30px rgba(0,0,0,.9)!important;
+  color:#e0e0e0!important; font-family:'Courier New',monospace!important;
+}
+.leaflet-popup-tip { background:rgba(8,8,12,.96)!important; }
+.leaflet-popup-content { margin:14px 18px!important; font-size:.75rem; line-height:1.8; }
+.pn { font-size:.9rem; font-weight:bold; color:#fff; margin-bottom:4px; }
+.pl { font-size:.6rem; letter-spacing:.12em; margin-bottom:10px; }
+.ps { display:flex; justify-content:space-between; gap:20px; }
+.pv { font-weight:bold; }
+.psc { font-size:1.5rem; font-weight:bold; text-align:center; margin:10px 0 2px; }
+.psl { font-size:.58rem; color:#666; text-align:center; letter-spacing:.12em; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>MBTA PULSE</h1>
+  <p>live transit generative art · boston, ma</p>
+</div>
+<div id="map"></div>
+
+<div id="controls">
+  <button class="ctrl-btn" id="refresh-btn" onclick="loadData()">↻ REFRESH</button>
+  <div id="data-src">source: —</div>
+</div>
+
+<div id="stats">
+  <h3>SYSTEM STATUS</h3>
+  <div class="stat-row"><span>Stops</span><span class="sv w" id="s-total">—</span></div>
+  <div class="stat-row"><span>Alerts</span><span class="sv r"  id="s-alerts">—</span></div>
+  <div class="stat-row"><span>Disrupted</span><span class="sv r" id="s-red">—</span></div>
+  <div class="stat-row"><span>Delayed</span><span class="sv y"  id="s-yellow">—</span></div>
+  <div class="stat-row"><span>On time</span><span class="sv g"  id="s-green">—</span></div>
+</div>
+
+<div id="legend">
+  <h3>TRANSLATION RULES</h3>
+  <div class="leg-row"><div class="dot g"></div><span>on time · no disruption</span></div>
+  <div class="leg-row"><div class="dot y"></div><span>minor delay</span></div>
+  <div class="leg-row"><div class="dot r"></div><span>active alert · disruption</span></div>
+  <hr class="div">
+  <div class="sz-row"><div class="s1"></div><div class="s2"></div><div class="s3"></div><span style="margin-left:4px">busyness 0 → 6+</span></div>
+  <hr class="div">
+  <h3 style="margin-bottom:6px">FILTER BY LINE</h3>
+  <div id="line-filter">
+    <button class="lb rl on" data-line="Red"    onclick="toggleLine(this)">RED</button>
+    <button class="lb ol on" data-line="Orange" onclick="toggleLine(this)">ORANGE</button>
+    <button class="lb gl on" data-line="Green"  onclick="toggleLine(this)">GREEN</button>
+    <button class="lb bl on" data-line="Blue"   onclick="toggleLine(this)">BLUE</button>
+    <button class="lb sl on" data-line="Silver" onclick="toggleLine(this)">SILVER</button>
+  </div>
+</div>
+<div id="ts">last updated: —</div>
+
+<script>
+// ── Static MBTA stop data (all major stops with real coords) ──
+const STOP_DATA = {
+  Red: [
+    {id:'place-alfcl',name:'Alewife',lat:42.3954,lng:-71.1427},
+    {id:'place-davis',name:'Davis',lat:42.3967,lng:-71.1221},
+    {id:'place-portr',name:'Porter',lat:42.3884,lng:-71.1191},
+    {id:'place-harsq',name:'Harvard',lat:42.3736,lng:-71.1189},
+    {id:'place-cntsq',name:'Central',lat:42.3652,lng:-71.1031},
+    {id:'place-knncl',name:'Kendall/MIT',lat:42.3625,lng:-71.0862},
+    {id:'place-chmnl',name:'Charles/MGH',lat:42.3612,lng:-71.0706},
+    {id:'place-pktrm',name:'Park Street',lat:42.3563,lng:-71.0622},
+    {id:'place-dwnxg',name:'Downtown Crossing',lat:42.3554,lng:-71.0603},
+    {id:'place-sstat',name:'South Station',lat:42.3521,lng:-71.0553},
+    {id:'place-brdwy',name:'Broadway',lat:42.3426,lng:-71.0569},
+    {id:'place-andrw',name:'Andrew',lat:42.3305,lng:-71.0573},
+    {id:'place-jfk',  name:'JFK/UMass',lat:42.3201,lng:-71.0525},
+    {id:'place-nqncy',name:'Quincy Center',lat:42.2516,lng:-71.0052},
+    {id:'place-asmnl',name:'Ashmont',lat:42.2847,lng:-71.0641},
+    {id:'place-shmnl',name:'Shawmut',lat:42.2929,lng:-71.0655},
+    {id:'place-fldcr',name:'Fields Corner',lat:42.3000,lng:-71.0614},
+    {id:'place-smmnl',name:'Savin Hill',lat:42.3107,lng:-71.0533},
+  ],
+  Orange: [
+    {id:'place-ogmnl',name:'Oak Grove',lat:42.4366,lng:-71.0706},
+    {id:'place-mlmnl',name:'Malden Center',lat:42.4267,lng:-71.0742},
+    {id:'place-welln',name:'Wellington',lat:42.4022,lng:-71.0769},
+    {id:'place-sull',name:'Sullivan Square',lat:42.3836,lng:-71.0761},
+    {id:'place-ccmnl',name:'Community College',lat:42.3737,lng:-71.0692},
+    {id:'place-north',name:'North Station',lat:42.3655,lng:-71.0609},
+    {id:'place-haecl',name:'Haymarket',lat:42.3632,lng:-71.0583},
+    {id:'place-state',name:'State',lat:42.3589,lng:-71.0577},
+    {id:'place-dwnxg',name:'Downtown Crossing',lat:42.3554,lng:-71.0603},
+    {id:'place-chncl',name:'Chinatown',lat:42.3523,lng:-71.0626},
+    {id:'place-tumnl',name:'Tufts Medical',lat:42.3496,lng:-71.0641},
+    {id:'place-bbsta',name:'Back Bay',lat:42.3474,lng:-71.0754},
+    {id:'place-masta',name:'Massachusetts Ave',lat:42.3415,lng:-71.0835},
+    {id:'place-rugg', name:'Ruggles',lat:42.3365,lng:-71.0893},
+    {id:'place-rcmnl',name:'Roxbury Crossing',lat:42.3313,lng:-71.0956},
+    {id:'place-jaksn',name:'Jackson Square',lat:42.3233,lng:-71.1001},
+    {id:'place-stony',name:'Stony Brook',lat:42.3172,lng:-71.1039},
+    {id:'place-grnst',name:'Green Street',lat:42.3103,lng:-71.1073},
+    {id:'place-forhl',name:'Forest Hills',lat:42.3007,lng:-71.1135},
+  ],
+  Green: [
+    {id:'place-lech', name:'Lechmere',lat:42.3704,lng:-71.0493},
+    {id:'place-spmnl',name:'Science Park',lat:42.3662,lng:-71.0672},
+    {id:'place-north',name:'North Station',lat:42.3655,lng:-71.0609},
+    {id:'place-haecl',name:'Haymarket',lat:42.3632,lng:-71.0583},
+    {id:'place-gover',name:'Government Center',lat:42.3597,lng:-71.0592},
+    {id:'place-pktrm',name:'Park Street',lat:42.3563,lng:-71.0622},
+    {id:'place-boyls',name:'Boylston',lat:42.3550,lng:-71.0649},
+    {id:'place-armnl',name:'Arlington',lat:42.3514,lng:-71.0706},
+    {id:'place-coecl',name:'Copley',lat:42.3499,lng:-71.0775},
+    {id:'place-hymnl',name:'Hynes',lat:42.3476,lng:-71.0873},
+    {id:'place-kencl',name:'Kenmore',lat:42.3488,lng:-71.0968},
+    {id:'place-fenwy',name:'Fenway',lat:42.3445,lng:-71.1048},
+    {id:'place-longw',name:'Longwood',lat:42.3412,lng:-71.1098},
+    {id:'place-bvmnl',name:'Brookline Village',lat:42.3319,lng:-71.1164},
+    {id:'place-brkhl',name:'Brookline Hills',lat:42.3314,lng:-71.1266},
+    {id:'place-bcnfd',name:'Beaconsfield',lat:42.3354,lng:-71.1411},
+    {id:'place-rsmnl',name:'Reservoir',lat:42.3354,lng:-71.1487},
+    {id:'place-chhil',name:'Chestnut Hill',lat:42.3268,lng:-71.1657},
+    {id:'place-newtn',name:'Newton Centre',lat:42.3297,lng:-71.1894},
+    {id:'place-newtnhg',name:'Newton Highlands',lat:42.3219,lng:-71.2069},
+    {id:'place-eliot',name:'Eliot',lat:42.3195,lng:-71.2182},
+    {id:'place-waban',name:'Waban',lat:42.3251,lng:-71.2286},
+    {id:'place-woodl',name:'Woodland',lat:42.3334,lng:-71.2438},
+    {id:'place-river',name:'Riverside',lat:42.3372,lng:-71.2528},
+  ],
+  Blue: [
+    {id:'place-wondl',name:'Wonderland',lat:42.4133,lng:-70.9918},
+    {id:'place-rbmnl',name:'Revere Beach',lat:42.4079,lng:-70.9926},
+    {id:'place-bmmnl',name:'Beachmont',lat:42.3967,lng:-70.9924},
+    {id:'place-sufdk',name:'Suffolk Downs',lat:42.3903,lng:-70.9973},
+    {id:'place-orhte',name:'Orient Heights',lat:42.3858,lng:-71.0041},
+    {id:'place-wimnl',name:'Wood Island',lat:42.3793,lng:-71.0226},
+    {id:'place-aport',name:'Airport',lat:42.3742,lng:-71.0300},
+    {id:'place-mvbcl',name:'Maverick',lat:42.3693,lng:-71.0396},
+    {id:'place-aqucl',name:'Aquarium',lat:42.3595,lng:-71.0515},
+    {id:'place-state',name:'State',lat:42.3589,lng:-71.0577},
+    {id:'place-gover',name:'Government Center',lat:42.3597,lng:-71.0592},
+    {id:'place-bomnl',name:'Bowdoin',lat:42.3616,lng:-71.0643},
+  ],
+  Silver: [
+    {id:'place-sstat',name:'South Station',lat:42.3521,lng:-71.0553},
+    {id:'place-crtst',name:'Courthouse',lat:42.3530,lng:-71.0440},
+    {id:'place-wtcst',name:'World Trade Center',lat:42.3481,lng:-71.0440},
+    {id:'place-sdrmg',name:'Silver Line Way',lat:42.3436,lng:-71.0402},
+    {id:'place-box',  name:'Box District',lat:42.3361,lng:-71.0288},
+    {id:'place-esomr',name:'East Somerville',lat:42.3921,lng:-71.0771},
+    {id:'place-gilmn',name:'Gilman Square',lat:42.3845,lng:-71.0965},
+    {id:'place-mdftd',name:'Medford/Tufts',lat:42.4078,lng:-71.1175},
+  ]
+};
+
+const LINE_COLOR = {Red:'#da291c',Orange:'#ed8b00',Green:'#00843d',Blue:'#003da5',Silver:'#7c878e'};
+const KEY = 'ca5dc23d93fe4d04898b7b456e02ef05';
+const activeLines = new Set(['Red','Orange','Green','Blue','Silver']);
+let map, markers = {}, stopMeta = {};
+
+// ── Init map ──────────────────────────────────────────────
+function initMap() {
+  map = L.map('map',{zoomControl:false,attributionControl:false}).setView([42.358,-71.06],13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,opacity:1}).addTo(map);
+  L.control.zoom({position:'bottomright'}).addTo(map);
+}
+
+// ── Busyness formula ──────────────────────────────────────
+function calcScore(approaching, maxDelay, alertCount) {
+  let s = 0;
+  s += Math.min(approaching, 3);
+  if (maxDelay > 3) s += 1;
+  if (maxDelay > 8) s += 1;
+  if (alertCount > 0) s += 3;
+  return s;
+}
+const radius = s => s <= 2 ? 7 : s <= 5 ? 13 : 20;
+const color  = (s, alerts, delay) =>
+  (alerts > 0 || delay > 8) ? '#ff4757' :
+  (delay > 2 || s >= 3)     ? '#ffd93d' : '#39ff7a';
+
+// ── Draw one stop ─────────────────────────────────────────
+function drawStop(stopId, line, name, lat, lng, approaching, maxDelay, alertCount) {
+  const sc = calcScore(approaching, maxDelay, alertCount);
+  const r  = radius(sc);
+  const c  = color(sc, alertCount, maxDelay);
+  const lc = LINE_COLOR[line];
+  const pulse = sc >= 3;
+
+  if (markers[stopId]) { map.removeLayer(markers[stopId]); delete markers[stopId]; }
+
+  const sz = r * 2 + 28;
+  const cx = sz / 2;
+
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="position:relative;width:${sz}px;height:${sz}px;">
+      <svg width="${sz}" height="${sz}" style="overflow:visible;position:absolute;top:0;left:0">
+        ${pulse ? `
+        <circle cx="${cx}" cy="${cx}" r="${r}" fill="${c}" fill-opacity="0.25" stroke="none">
+          <animate attributeName="r" values="${r};${r+10};${r}" dur="${1.5 + Math.random()*1}s" repeatCount="indefinite"/>
+          <animate attributeName="fill-opacity" values="0.25;0;0.25" dur="${1.5 + Math.random()*1}s" repeatCount="indefinite"/>
+        </circle>` : ''}
+        <circle cx="${cx}" cy="${cx}" r="${r}" fill="${c}" fill-opacity="0.85" stroke="${lc}" stroke-width="1.5"/>
+      </svg>
+    </div>`,
+    iconSize: [sz, sz],
+    iconAnchor: [cx, cx]
+  });
+
+  const statusTxt = alertCount > 0 ? '🔴 DISRUPTED' : maxDelay > 2 ? '🟡 DELAYED' : '🟢 ON TIME';
+  const lbl = sc <= 2 ? 'QUIET' : sc <= 5 ? 'BUSY' : 'HECTIC';
+  const popup = `
+    <div class="pn">${name}</div>
+    <div class="pl" style="color:${lc}">${line.toUpperCase()} LINE</div>
+    <div class="psc" style="color:${c}">${sc}</div>
+    <div class="psl">BUSYNESS SCORE · ${lbl}</div>
+    <hr style="border-color:#222;margin:8px 0">
+    <div class="ps"><span>Status</span><span class="pv">${statusTxt}</span></div>
+    <div class="ps"><span>Vehicles (10 min)</span><span class="pv">${approaching}</span></div>
+    <div class="ps"><span>Max delay</span><span class="pv">${maxDelay} min</span></div>
+    <div class="ps"><span>Active alerts</span><span class="pv">${alertCount}</span></div>`;
+
+  const m = L.marker([lat, lng], {icon}).bindPopup(popup, {maxWidth:240});
+  if (activeLines.has(line)) m.addTo(map);
+  markers[stopId] = m;
+  stopMeta[stopId] = {line, color: c, marker: m};
+}
+
+// ── Simulated-realistic data (always visible fallback) ────
+function simulateData() {
+  // Weighted random based on time of day
+  const h = new Date().getHours();
+  const rushHour = (h >= 7 && h <= 9) || (h >= 16 && h <= 18);
+  const late = h >= 22 || h < 5;
+
+  // Known busy stops get higher scores
+  const hotspots = new Set([
+    'place-pktrm','place-dwnxg','place-sstat','place-north',
+    'place-haecl','place-kencl','place-harsq','place-knncl',
+    'place-bbsta','place-rugg','place-state','place-gover'
+  ]);
+
+  let allStops = [];
+  for (const [line, stops] of Object.entries(STOP_DATA)) {
+    for (const s of stops) {
+      const hot = hotspots.has(s.id);
+      let approaching = late ? 0 : Math.floor(Math.random() * (rushHour ? 4 : 2));
+      if (hot && rushHour) approaching += 2;
+      let maxDelay = Math.random() < (rushHour ? 0.4 : 0.15) ? Math.floor(Math.random()*15+1) : 0;
+      let alertCount = Math.random() < 0.08 ? 1 : 0;
+      allStops.push({...s, line, approaching, maxDelay, alertCount});
+    }
+  }
+  return allStops;
+}
+
+// ── Live MBTA API fetch ───────────────────────────────────
+async function fetchLive() {
+  const allStops = [];
+  const seen = new Set();
+
+  // Build flat stop list
+  for (const [line, stops] of Object.entries(STOP_DATA)) {
+    for (const s of stops) {
+      if (!seen.has(s.id)) { seen.add(s.id); allStops.push({...s, line}); }
+    }
+  }
+
+  // Fetch alerts
+  let alertsByStop = {};
+  let totalAlerts = 0;
+  try {
+    const ar = await fetch(`https://api-v3.mbta.com/alerts?filter[route_type]=0,1,3&fields[alert]=informed_entity`,
+      {headers:{'x-api-key':KEY}});
+    if (ar.ok) {
+      const aj = await ar.json();
+      totalAlerts = aj.data.length;
+      for (const a of aj.data) {
+        for (const e of (a.attributes?.informed_entity||[])) {
+          if (e.stop) alertsByStop[e.stop] = (alertsByStop[e.stop]||0) + 1;
+        }
+      }
+    }
+  } catch(e) {}
+
+  // Fetch predictions per stop (batched)
+  const enriched = [];
+  for (let i = 0; i < allStops.length; i += 6) {
+    const batch = allStops.slice(i, i+6);
+    await Promise.all(batch.map(async s => {
+      let approaching = 0, maxDelay = 0;
+      try {
+        const ids = s.id;
+        const pr = await fetch(
+          `https://api-v3.mbta.com/predictions?filter[stop]=${ids}&page[limit]=10&fields[prediction]=departure_time,arrival_time`,
+          {headers:{'x-api-key':KEY}});
+        if (pr.ok) {
+          const pj = await pr.json();
+          const now = Date.now();
+          for (const p of pj.data) {
+            const dep = p.attributes?.departure_time || p.attributes?.arrival_time;
+            if (dep) {
+              const diff = (new Date(dep) - now) / 60000;
+              if (diff >= 0 && diff <= 10) approaching++;
+            }
+          }
+        }
+      } catch(e) {}
+      enriched.push({...s, approaching, maxDelay, alertCount: alertsByStop[s.id]||0});
+    }));
+  }
+  return {stops: enriched, totalAlerts};
+}
+
+// ── Main load ─────────────────────────────────────────────
+async function loadData() {
+  const btn = document.getElementById('refresh-btn');
+  btn.classList.add('loading');
+  btn.textContent = '↻ LOADING…';
+
+  // Always render simulated first so map is never blank
+  const simStops = simulateData();
+  renderStops(simStops, simStops.length, simStops.filter(s=>s.alertCount>0).length, 'simulated (realistic)');
+
+  // Then try live on top
+  try {
+    const {stops, totalAlerts} = await fetchLive();
+    if (stops && stops.length > 0) {
+      renderStops(stops, stops.length, totalAlerts, 'live mbta api');
+    }
+  } catch(e) {
+    console.warn('Live fetch failed, keeping simulation', e);
+  }
+
+  document.getElementById('ts').textContent =
+    'last updated: ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+  btn.classList.remove('loading');
+  btn.textContent = '↻ REFRESH';
+}
+
+function renderStops(stops, total, alerts, src) {
+  stopMeta = {};
+  let red=0, yellow=0, green=0;
+
+  // Deduplicate by id, keeping last occurrence
+  const byId = {};
+  for (const s of stops) byId[s.id] = s;
+
+  for (const s of Object.values(byId)) {
+    drawStop(s.id, s.line, s.name, s.lat, s.lng, s.approaching||0, s.maxDelay||0, s.alertCount||0);
+    const c = stopMeta[s.id]?.color;
+    if (c === '#ff4757') red++;
+    else if (c === '#ffd93d') yellow++;
+    else green++;
+  }
+
+  document.getElementById('s-total').textContent  = Object.keys(byId).length;
+  document.getElementById('s-alerts').textContent = alerts;
+  document.getElementById('s-red').textContent    = red;
+  document.getElementById('s-yellow').textContent = yellow;
+  document.getElementById('s-green').textContent  = green;
+  document.getElementById('data-src').textContent = 'source: ' + src;
+}
+
+function toggleLine(btn) {
+  const line = btn.dataset.line;
+  if (activeLines.has(line)) {
+    activeLines.delete(line);
+    btn.classList.replace('on','off');
+    for (const [id, d] of Object.entries(stopMeta)) {
+      if (d.line === line) map.removeLayer(d.marker);
+    }
+  } else {
+    activeLines.add(line);
+    btn.classList.replace('off','on');
+    for (const [id, d] of Object.entries(stopMeta)) {
+      if (d.line === line) d.marker.addTo(map);
+    }
+  }
+}
+
+initMap();
+loadData();
+setInterval(loadData, 60000);
+</script>
+</body>
+</html>
