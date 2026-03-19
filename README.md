@@ -1,3 +1,3 @@
 # MBTA-Visualization
 
-*Disclaimer* This Website was made using claude.ai
+*Disclaimer*: This Website was made using claude.ai
